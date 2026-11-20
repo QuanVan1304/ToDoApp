@@ -8,7 +8,7 @@ export default function TodayPage() {
       </h1>
 
       <TaskList
-        status="TODO"
+        statuses={["TODO", "INPROGRESS"]}
         todayOnly
         showCreatedDate="past-only"
       />

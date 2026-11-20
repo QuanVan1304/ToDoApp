@@ -182,28 +182,52 @@ export async function listTasks(
     search,
     todayOnly,
   } = params;
-  const { end } = todayBounds();
+  const { start, end } = todayBounds();
+
+  const andFilters: Prisma.TaskWhereInput[] = [];
+
+  if (todayOnly) {
+    // Trang Hôm nay:
+    // - Việc trong ngày hôm nay: hiện cả TODO và INPROGRESS
+    // - Việc tồn từ ngày trước: chỉ tự động dồn sang Hôm nay nếu vẫn đang TODO
+    //   (còn việc đã tick INPROGRESS từ hôm trước sẽ chỉ nằm ở trang Đang làm)
+    andFilters.push({
+      OR: [
+        {
+          scheduledFor: {
+            gte: start,
+            lt: end,
+          },
+          ...(status && { status }),
+          ...(statuses?.length && { status: { in: statuses } }),
+        },
+        {
+          scheduledFor: {
+            lt: start,
+          },
+          status: "TODO",
+        },
+      ],
+    });
+  } else {
+    if (status) andFilters.push({ status });
+    if (statuses?.length) {
+      andFilters.push({ status: { in: statuses } });
+    }
+  }
+
+  if (search) {
+    andFilters.push({
+      OR: [
+        { title: { contains: search, mode: "insensitive" } },
+        { notes: { contains: search, mode: "insensitive" } },
+      ],
+    });
+  }
 
   const where: Prisma.TaskWhereInput = {
     userId,
-
-    ...(status && { status }),
-
-    ...(statuses?.length && {
-      status: {
-        in: statuses,
-      },
-    }),
-
-    // Tự động dồn việc tồn từ các ngày trước sang Hôm nay (scheduledFor < 00:00 ngày mai)
-    ...(todayOnly && {
-      scheduledFor: {
-        lt: end,
-      },
-    }),
-
     ...(projectId && { projectId }),
-
     ...(tagIds?.length && {
       tags: {
         some: {
@@ -211,13 +235,7 @@ export async function listTasks(
         },
       },
     }),
-
-    ...(search && {
-      OR: [
-        { title: { contains: search, mode: "insensitive" } },
-        { notes: { contains: search, mode: "insensitive" } },
-      ],
-    }),
+    ...(andFilters.length > 0 && { AND: andFilters }),
   };
 
   return prisma.task.findMany({
@@ -289,6 +307,9 @@ export async function updateTask(
         ...(input.status !== undefined && {
           status: input.status,
           completedAt: input.status === "DONE" ? new Date() : null,
+          ...(input.status === "INPROGRESS" && {
+            scheduledFor: toVietnamDateOnly(),
+          }),
         }),
         ...(input.priority !== undefined && { priority: input.priority }),
         ...(input.dueDate !== undefined && {

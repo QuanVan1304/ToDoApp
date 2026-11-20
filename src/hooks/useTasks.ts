@@ -203,6 +203,8 @@ export function useTasks(options: UseTasksOptions = {}) {
           ...existing,
           status,
           completedAt: status === "DONE" ? new Date() : null,
+          scheduledFor:
+            status === "INPROGRESS" ? new Date() : existing.scheduledFor,
         });
       }
 
