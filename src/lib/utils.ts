@@ -54,12 +54,28 @@ export function getDaysOld(date: Date | string | null): number {
   return Math.max(0, diffDays);
 }
 
-export function isVietnamEvening(startHour = 18): boolean {
-  const hourStr = new Intl.DateTimeFormat("en-US", {
+// Đổi giờ nhắc nhở cuối ngày tại đúng 1 dòng này (định dạng "HH:mm", ví dụ "09:40" hoặc "18:30")
+export const EVENING_REMINDER_TIME = "18:00";
+
+export function isVietnamEvening(
+  time: string = EVENING_REMINDER_TIME,
+): boolean {
+  const [targetHourStr, targetMinStr = "0"] = time.split(":");
+  const targetMinutes = Number(targetHourStr) * 60 + Number(targetMinStr);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Ho_Chi_Minh",
-    hour: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
-  }).format(new Date());
-  const hour = Number(hourStr) % 24;
-  return hour >= startHour;
+  }).formatToParts(new Date());
+
+  const currentHour =
+    Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
+  const currentMinute = Number(
+    parts.find((p) => p.type === "minute")?.value ?? 0,
+  );
+  const currentMinutes = currentHour * 60 + currentMinute;
+
+  return currentMinutes >= targetMinutes;
 }

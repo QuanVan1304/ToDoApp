@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
 import { useTasks } from "@/hooks/useTasks";
@@ -34,6 +35,15 @@ export function TaskList({
     todayOnly,
   });
 
+  const [isEvening, setIsEvening] = useState(() => isVietnamEvening());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIsEvening(isVietnamEvening());
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, []);
+
   function handleAdvance(id: string, currentStatus: Status) {
     if (currentStatus === "TODO") {
       updateTaskStatus({ id, status: "INPROGRESS" });
@@ -54,7 +64,6 @@ export function TaskList({
   }
 
   const activeTasks = tasks.filter((t) => t.status !== "DONE");
-  const isEvening = isVietnamEvening(18);
   const untouchedCount = activeTasks.filter((t) => t.status === "TODO").length;
   const inProgressCount = activeTasks.filter(
     (t) => t.status === "INPROGRESS",

@@ -34,7 +34,7 @@ export function TaskItem({
   const isPending = task.id.startsWith("temp-");
   const isDone = task.status === "DONE";
   const isInProgress = task.status === "INPROGRESS";
-  const isEvening = !isDone && isVietnamEvening(18);
+  const isEvening = !isDone && isVietnamEvening();
   const daysOld = !isDone && task.createdAt ? getDaysOld(task.createdAt) : 0;
   const isAgingWarn = daysOld >= 3 && daysOld < 7;
   const isAgingCritical = daysOld >= 7;
