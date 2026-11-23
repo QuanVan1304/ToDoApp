@@ -43,3 +43,13 @@ export function isBeforeToday(date: Date | string | null): boolean {
   if (!date) return false;
   return getVietnamDateKey(date) < getVietnamDateKey(new Date());
 }
+
+export function getDaysOld(date: Date | string | null): number {
+  if (!date) return 0;
+  const createdKey = getVietnamDateKey(date);
+  const todayKey = getVietnamDateKey(new Date());
+  const createdUtc = new Date(`${createdKey}T00:00:00.000Z`).getTime();
+  const todayUtc = new Date(`${todayKey}T00:00:00.000Z`).getTime();
+  const diffDays = Math.floor((todayUtc - createdUtc) / 86_400_000);
+  return Math.max(0, diffDays);
+}
