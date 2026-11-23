@@ -5,8 +5,13 @@ import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
 import { TaskDetailModal } from "./TaskDetailModal";
 import { useTasks } from "@/hooks/useTasks";
-import { getDaysOld, isVietnamEvening } from "@/lib/utils";
-import type { Status, TaskWithRelations } from "@/types";
+import {
+  getDaysOld,
+  isThisWeekVietnam,
+  isTodayVietnam,
+  isVietnamEvening,
+} from "@/lib/utils";
+import type { Priority, Status, TaskWithRelations } from "@/types";
 
 function normalizeSearch(value: string): string {
   return value
@@ -35,6 +40,13 @@ const STATUS_RANK: Record<Status, number> = {
   TODO: 0,
   INPROGRESS: 1,
   DONE: 2,
+};
+
+const PRIORITY_RANK: Record<Priority, number> = {
+  URGENT: 3,
+  HIGH: 2,
+  NORMAL: 1,
+  LOW: 0,
 };
 
 export function TaskList({
@@ -133,7 +145,14 @@ export function TaskList({
   }
 
   const totalCount = tasks.length;
-  const doneCount = tasks.filter((t) => t.status === "DONE").length;
+  const doneTasks = tasks.filter((t) => t.status === "DONE");
+  const doneCount = doneTasks.length;
+  const doneTodayCount = doneTasks.filter((t) =>
+    isTodayVietnam(t.completedAt ?? t.updatedAt),
+  ).length;
+  const doneThisWeekCount = doneTasks.filter((t) =>
+    isThisWeekVietnam(t.completedAt ?? t.updatedAt),
+  ).length;
   const activeTasks = tasks.filter((t) => t.status !== "DONE");
   const untouchedCount = activeTasks.filter((t) => t.status === "TODO").length;
   const inProgressCount = activeTasks.filter(
@@ -155,7 +174,15 @@ export function TaskList({
     const statusDiff = STATUS_RANK[a.status] - STATUS_RANK[b.status];
     if (statusDiff !== 0) return statusDiff;
 
-    if (a.status !== "DONE") {
+    if (a.status === "DONE") {
+      const timeA = new Date(a.completedAt ?? a.updatedAt).getTime();
+      const timeB = new Date(b.completedAt ?? b.updatedAt).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+    } else {
+      const priorityDiff =
+        PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+
       const ageA = getDaysOld(a.createdAt);
       const ageB = getDaysOld(b.createdAt);
       const tierA = ageA >= 7 ? 2 : ageA >= 3 ? 1 : 0;
@@ -172,6 +199,31 @@ export function TaskList({
 
   return (
     <div className="w-full">
+      {status === "DONE" && totalCount > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--border)] bg-[var(--bg-rail)]/55 px-4 py-2.5 font-mono text-xs text-[var(--ink-muted)]">
+          <span>
+            Hôm nay:{" "}
+            <strong className="font-semibold text-[var(--teal)]">
+              {doneTodayCount} việc
+            </strong>
+          </span>
+          <span className="opacity-40">·</span>
+          <span>
+            Tuần này:{" "}
+            <strong className="font-semibold text-[var(--ink)]">
+              {doneThisWeekCount} việc
+            </strong>
+          </span>
+          <span className="opacity-40">·</span>
+          <span>
+            Tổng cộng:{" "}
+            <strong className="font-semibold text-[var(--ink)]">
+              {totalCount} việc đã hoàn thành
+            </strong>
+          </span>
+        </div>
+      )}
+
       {projectId && (
         <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-rail)]/65 px-5 py-4">
           <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
@@ -299,7 +351,7 @@ export function TaskList({
                   {warnCount > 0
                     ? ` (và ${warnCount} việc ngâm 3–6 ngày)`
                     : ""}
-                  . Hãy bấm <strong>Làm ngay</strong> để xử lý dứt điểm hoặc{" "}
+                  . Hãy <strong>Làm ngay</strong> hoặc{" "}
                   <strong>Xoá</strong> nếu không còn cần thiết.
                 </span>
               </>

@@ -54,6 +54,24 @@ export function getDaysOld(date: Date | string | null): number {
   return Math.max(0, diffDays);
 }
 
+export function isTodayVietnam(date: Date | string | null): boolean {
+  if (!date) return false;
+  return getVietnamDateKey(date) === getVietnamDateKey(new Date());
+}
+
+export function isThisWeekVietnam(date: Date | string | null): boolean {
+  if (!date) return false;
+  const todayKey = getVietnamDateKey(new Date());
+  const todayUtc = new Date(`${todayKey}T00:00:00.000Z`);
+  // Tuần tính từ Thứ 2 (getUTCDay: CN = 0, T2 = 1, ..., T7 = 6)
+  const dayOfWeek = todayUtc.getUTCDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const mondayUtc = new Date(todayUtc.getTime() - daysSinceMonday * 86_400_000);
+  const mondayKey = mondayUtc.toISOString().slice(0, 10);
+  const targetKey = getVietnamDateKey(date);
+  return targetKey >= mondayKey && targetKey <= todayKey;
+}
+
 export const EVENING_REMINDER_TIME = "20:00";
 
 export function isVietnamEvening(

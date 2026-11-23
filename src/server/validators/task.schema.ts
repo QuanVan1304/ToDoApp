@@ -9,11 +9,12 @@ export const createTaskSchema = z.object({
   status: statusSchema.optional(),
   priority: prioritySchema.optional(),
   dueDate: z.string().date().optional().nullable(),
-  projectId: z.string().cuid().optional().nullable(),
-  tagIds: z.array(z.string().cuid()).optional(),
+  projectId: z.string().min(1).optional().nullable(),
+  tagIds: z.array(z.string().min(1)).optional(),
 });
 
 export const updateTaskSchema = createTaskSchema.partial().extend({
+  notes: z.string().max(5000).optional().nullable(),
   order: z.number().optional(),
 });
 

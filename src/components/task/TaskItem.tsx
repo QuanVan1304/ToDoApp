@@ -39,6 +39,9 @@ export function TaskItem({
   const isPending = task.id.startsWith("temp-");
   const isDone = task.status === "DONE";
   const isInProgress = task.status === "INPROGRESS";
+  const isUrgent = !isDone && task.priority === "URGENT";
+  const isHigh = !isDone && task.priority === "HIGH";
+  const isLow = !isDone && task.priority === "LOW";
   const isEvening = !isDone && isEveningProp;
   const daysOld = !isDone && task.createdAt ? getDaysOld(task.createdAt) : 0;
   const isAgingWarn = daysOld >= 3 && daysOld < 7;
@@ -56,14 +59,19 @@ export function TaskItem({
     <motion.div
       layout
       initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: isDone ? 0.55 : isPending ? 0.75 : 1, y: 0 }}
+      animate={{
+        opacity: isDone ? 0.55 : isPending ? 0.75 : isLow ? 0.78 : 1,
+        y: 0,
+      }}
       exit={{ opacity: 0, x: 16 }}
       className={`group flex items-start gap-[0.6rem] border-b border-[var(--border)] py-[0.7rem] pr-3 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
-        isAgingCritical
-          ? "border-l-2 border-l-[var(--brick)] pl-2.5"
-          : isAgingWarn
-            ? "border-l-2 border-l-[var(--mustard)] pl-2.5"
-            : ""
+        isUrgent
+          ? "border-l-2 border-l-[var(--brick)] bg-[var(--brick)]/[0.045] pl-2.5"
+          : isAgingCritical
+            ? "border-l-2 border-l-[var(--brick)] pl-2.5"
+            : isHigh || isAgingWarn
+              ? "border-l-2 border-l-[var(--mustard)] pl-2.5"
+              : ""
       }`}
     >
       <TaskCheckbox
@@ -78,12 +86,13 @@ export function TaskItem({
 
       <span
         className={`mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full ${
-          task.priority === "URGENT" || isAgingCritical ? "animate-pulse" : ""
+          isUrgent || isAgingCritical ? "animate-pulse" : ""
         }`}
         style={{
-          backgroundColor: isAgingCritical
-            ? "var(--brick)"
-            : PRIORITY_COLOR[task.priority],
+          backgroundColor:
+            isUrgent || isAgingCritical
+              ? "var(--brick)"
+              : PRIORITY_COLOR[task.priority],
           boxShadow: isInProgress
             ? "0 0 0 3px color-mix(in srgb, var(--teal) 18%, transparent)"
             : undefined,
@@ -99,10 +108,26 @@ export function TaskItem({
         className={`min-w-0 flex-1 ${!isPending && onSelect ? "cursor-pointer" : ""}`}
         title={!isPending && onSelect ? "Bấm để xem & chỉnh sửa chi tiết" : undefined}
       >
-        <div className="font-sans text-[0.93rem] leading-[1.45] text-[var(--ink)]">
+        <div
+          className={`font-sans text-[0.93rem] leading-[1.45] text-[var(--ink)] ${
+            isUrgent ? "font-medium" : ""
+          }`}
+        >
           <span className={isDone ? "task-strike" : ""}>
             {task.title}
           </span>
+
+          {isUrgent && (
+            <span className="ml-2 inline-flex items-center rounded bg-[var(--brick)]/14 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--brick)]">
+              ! Khẩn cấp
+            </span>
+          )}
+
+          {isHigh && (
+            <span className="ml-2 inline-flex items-center rounded bg-[var(--mustard)]/16 px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--mustard)]">
+              ↑ Cao
+            </span>
+          )}
 
           {isInProgress && (
             <span className="ml-2 inline-flex rounded-full bg-[var(--teal)]/12 px-2 py-0.5 text-[10px] font-medium text-[var(--teal)]">
@@ -121,16 +146,16 @@ export function TaskItem({
               {task.project.name}
             </span>
           )}
-
-          {task.notes && (
-            <span
-              className="ml-2 inline-flex items-center font-mono text-[10px] text-[var(--ink-muted)] opacity-75"
-              title={task.notes}
-            >
-              ✎ ghi chú
-            </span>
-          )}
         </div>
+
+        {task.notes && (
+          <p
+            className="mt-0.5 truncate font-sans text-[0.78rem] text-[var(--ink-muted)] opacity-80"
+            title={task.notes}
+          >
+            ✎ {task.notes.replace(/\s*\n+\s*/g, " · ")}
+          </p>
+        )}
 
         {(shouldShowCreatedDate || isEvening) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[0.7rem] text-[var(--ink-muted)]">
