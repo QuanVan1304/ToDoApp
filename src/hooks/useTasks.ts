@@ -9,7 +9,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
-import type { TaskWithRelations, Status } from "@/types";
+import type { Priority, Status, TaskWithRelations } from "@/types";
 
 interface UseTasksOptions {
   status?: Status;
@@ -421,6 +421,80 @@ export function useTasks(options: UseTasksOptions = {}) {
     },
   });
 
+  type UpdateTaskArg = {
+    id: string;
+    title?: string;
+    notes?: string | null;
+    status?: Status;
+    priority?: Priority;
+    dueDate?: string | null;
+    projectId?: string | null;
+    project?: { id: string; name: string; color: string | null } | null;
+  };
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({ id, project: _project, ...body }: UpdateTaskArg) => {
+      void _project;
+      return apiClient.patch<TaskWithRelations>(`/api/tasks/${id}`, body);
+    },
+
+    onMutate: async (updates) => {
+      await queryClient.cancelQueries({ queryKey: ["tasks"] });
+
+      const previousQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: ["tasks"],
+      });
+
+      const existing = findTaskInCaches(queryClient, updates.id);
+      if (existing) {
+        const nextStatus = updates.status ?? existing.status;
+        if (updates.status && existing.status !== updates.status) {
+          pushUndoAction({
+            type: "status",
+            taskId: existing.id,
+            title: updates.title?.trim() || existing.title,
+            fromStatus: existing.status,
+            toStatus: updates.status,
+          });
+        }
+
+        upsertTaskAcrossCaches(queryClient, {
+          ...existing,
+          ...(updates.title !== undefined && { title: updates.title.trim() }),
+          ...(updates.notes !== undefined && { notes: updates.notes }),
+          ...(updates.status !== undefined && {
+            status: nextStatus,
+            completedAt: nextStatus === "DONE" ? new Date() : null,
+            scheduledFor:
+              nextStatus === "INPROGRESS" ? new Date() : existing.scheduledFor,
+          }),
+          ...(updates.priority !== undefined && { priority: updates.priority }),
+          ...(updates.dueDate !== undefined && {
+            dueDate: updates.dueDate ? new Date(updates.dueDate) : null,
+          }),
+          ...(updates.projectId !== undefined && {
+            projectId: updates.projectId,
+            project: updates.project ?? null,
+          }),
+        });
+      }
+
+      return { previousQueries };
+    },
+
+    onSuccess: (updatedTask) => {
+      upsertTaskAcrossCaches(queryClient, updatedTask);
+    },
+
+    onError: (_error, _variables, context) => {
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([k, prev]) => {
+          queryClient.setQueryData(k, prev);
+        });
+      }
+    },
+  });
+
   async function restoreTaskToServer(task: TaskWithRelations) {
     const oldId = task.id;
     upsertTaskAcrossCaches(queryClient, task);
@@ -503,6 +577,7 @@ export function useTasks(options: UseTasksOptions = {}) {
     tasks: data ?? [],
     isLoading,
     createTask: createMutation.mutate,
+    updateTask: updateTaskMutation.mutate,
     updateTaskStatus: ({ id, status }: { id: string; status: Status }) =>
       statusMutation.mutate({ id, status }),
     deleteTask: deleteMutation.mutate,

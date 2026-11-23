@@ -21,6 +21,7 @@ interface TaskItemProps {
   task: TaskWithRelations;
   onAdvance: (id: string, currentStatus: Status) => void;
   onRevert?: (id: string, currentStatus: Status) => void;
+  onSelect?: (task: TaskWithRelations) => void;
   onDelete: (id: string) => void;
   showCreatedDate?: boolean | "past-only";
   isEvening?: boolean;
@@ -30,6 +31,7 @@ export function TaskItem({
   task,
   onAdvance,
   onRevert,
+  onSelect,
   onDelete,
   showCreatedDate = false,
   isEvening: isEveningProp = false,
@@ -88,7 +90,15 @@ export function TaskItem({
         }}
       />
 
-      <div className="min-w-0 flex-1">
+      <div
+        onClick={() => {
+          if (!isPending && onSelect) {
+            onSelect(task);
+          }
+        }}
+        className={`min-w-0 flex-1 ${!isPending && onSelect ? "cursor-pointer" : ""}`}
+        title={!isPending && onSelect ? "Bấm để xem & chỉnh sửa chi tiết" : undefined}
+      >
         <div className="font-sans text-[0.93rem] leading-[1.45] text-[var(--ink)]">
           <span className={isDone ? "task-strike" : ""}>
             {task.title}
@@ -109,6 +119,15 @@ export function TaskItem({
                 }}
               />
               {task.project.name}
+            </span>
+          )}
+
+          {task.notes && (
+            <span
+              className="ml-2 inline-flex items-center font-mono text-[10px] text-[var(--ink-muted)] opacity-75"
+              title={task.notes}
+            >
+              ✎ ghi chú
             </span>
           )}
         </div>

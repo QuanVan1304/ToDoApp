@@ -1,8 +1,11 @@
 "use client";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { useTheme } from "next-themes";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { signOut } from "next-auth/react";
+import { useQueryClient } from "@tanstack/react-query";
 
 const emptySubscribe = () => () => {};
 
@@ -13,21 +16,34 @@ interface RailProject {
   _count: { tasks: number };
 }
 
+export interface RailUser {
+  name: string | null;
+  email: string | null;
+  image: string | null;
+}
+
 interface RailProps {
   projects: RailProject[];
+  user: RailUser;
 }
 
 export function Rail({
   projects,
+  user,
 }: RailProps) {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectColor, setProjectColor] = useState("#D9A441");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
+  const [projectToDelete, setProjectToDelete] = useState<RailProject | null>(
+    null,
+  );
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
   const mounted = useSyncExternalStore(
     emptySubscribe,
     () => true,
@@ -78,6 +94,39 @@ export function Rail({
       setIsCreatingProject(false);
     }
   }
+
+  async function handleConfirmDeleteProject() {
+    if (!projectToDelete || isDeletingProject) return;
+
+    setIsDeletingProject(true);
+    try {
+      const response = await fetch(`/api/projects/${projectToDelete.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Không thể xoá dự án.");
+      }
+
+      const deletedId = projectToDelete.id;
+      setProjectToDelete(null);
+
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      if (pathname === `/projects/${deletedId}`) {
+        router.push("/today");
+      }
+      router.refresh();
+    } catch {
+      setProjectToDelete(null);
+    } finally {
+      setIsDeletingProject(false);
+    }
+  }
+
+  const userInitial = (user.name || user.email || "U")
+    .trim()
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <aside className="flex h-screen w-[248px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-rail)]">
@@ -234,40 +283,57 @@ export function Rail({
             const active = pathname === `/projects/${project.id}`;
 
             return (
-              <Link
+              <div
                 key={project.id}
-                href={`/projects/${project.id}`}
-                className={`group flex h-9 items-center gap-3 rounded-[8px] px-3 transition-colors ${
+                className={`group flex h-9 items-center gap-2 rounded-[8px] px-3 transition-colors ${
                   active
                     ? "bg-[var(--bg-main)] text-[var(--ink)]"
                     : "text-[var(--ink-muted)] hover:bg-black/[0.035] hover:text-[var(--ink)] dark:hover:bg-white/[0.035]"
                 }`}
               >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor:
-                      project.color || "var(--mustard)",
-                  }}
-                />
+                <Link
+                  href={`/projects/${project.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-3 py-1"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor:
+                        project.color || "var(--mustard)",
+                    }}
+                  />
 
-                <span className="min-w-0 flex-1 truncate text-[0.81rem]">
-                  {project.name}
-                </span>
+                  <span className="min-w-0 flex-1 truncate text-[0.81rem]">
+                    {project.name}
+                  </span>
+                </Link>
 
                 {project._count.tasks > 0 && (
-                  <span className="text-[10px] tabular-nums opacity-40">
+                  <span className="text-[10px] tabular-nums opacity-40 group-hover:hidden">
                     {project._count.tasks}
                   </span>
                 )}
-              </Link>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setProjectToDelete(project);
+                  }}
+                  title={`Xoá dự án ${project.name}`}
+                  aria-label={`Xoá dự án ${project.name}`}
+                  className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] text-[var(--ink-muted)] transition-colors hover:bg-[var(--brick)]/12 hover:text-[var(--brick)] group-hover:flex"
+                >
+                  ✕
+                </button>
+              </div>
             );
           })}
         </div>
       </div>
-      
+
       {/* Bottom */}
-      <div className="border-t border-[var(--border)] p-3">
+      <div className="space-y-1.5 border-t border-[var(--border)] p-3">
         <button
           onClick={() =>
             setTheme(theme === "dark" ? "light" : "dark")
@@ -294,7 +360,57 @@ export function Rail({
               : "Giao diện"}
           </span>
         </button>
+
+        {/* Account + Sign Out */}
+        <div className="flex items-center gap-2.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-main)]/55 px-2.5 py-2">
+          {user.image ? (
+            <Image
+              src={user.image}
+              alt={user.name || "Avatar"}
+              width={28}
+              height={28}
+              className="h-7 w-7 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] font-mono text-xs font-semibold text-[var(--bg-main)]">
+              {userInitial}
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium text-[var(--ink)]">
+              {user.name || "Tài khoản"}
+            </div>
+            {user.email && (
+              <div className="truncate text-[10px] text-[var(--ink-muted)]">
+                {user.email}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void signOut({ callbackUrl: "/login" })}
+            title="Đăng xuất"
+            aria-label="Đăng xuất"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--ink-muted)] transition-colors hover:bg-[var(--brick)]/12 hover:text-[var(--brick)]"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
+        </div>
       </div>
+
       {isProjectDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-sm">
           <form
@@ -355,6 +471,47 @@ export function Rail({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-sm"
+          onClick={() => !isDeletingProject && setProjectToDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--bg-main)] p-5 shadow-2xl"
+          >
+            <h2 className="font-serif text-xl text-[var(--ink)]">
+              Xoá dự án “{projectToDelete.name}”?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--ink-muted)]">
+              Dự án sẽ bị xoá khỏi thanh điều hướng. Các công việc bên trong sẽ{" "}
+              <strong className="text-[var(--ink)]">không bị mất</strong>, chỉ
+              tách ra khỏi dự án này.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => setProjectToDelete(null)}
+                className="rounded-lg px-3 py-2 text-sm text-[var(--ink-muted)] hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                Huỷ
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => void handleConfirmDeleteProject()}
+                className="rounded-lg bg-[var(--brick)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingProject ? "Đang xoá..." : "Xoá dự án"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </aside>

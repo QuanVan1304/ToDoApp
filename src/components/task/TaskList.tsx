@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
+import { TaskDetailModal } from "./TaskDetailModal";
 import { useTasks } from "@/hooks/useTasks";
 import { getDaysOld, isVietnamEvening } from "@/lib/utils";
-import type { Status } from "@/types";
+import type { Status, TaskWithRelations } from "@/types";
+
+function normalizeSearch(value: string): string {
+  return value
+    .toLocaleLowerCase("vi")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .trim();
+}
 
 function subscribeEveningClock(onStoreChange: () => void) {
   const timer = setInterval(onStoreChange, 1_000);
@@ -38,6 +48,7 @@ export function TaskList({
   const {
     tasks,
     isLoading,
+    updateTask,
     updateTaskStatus,
     deleteTask,
     canUndo,
@@ -50,6 +61,11 @@ export function TaskList({
     projectId,
     todayOnly,
   });
+
+  const [search, setSearch] = useState("");
+  const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(
+    null,
+  );
 
   const isEvening = useSyncExternalStore(
     subscribeEveningClock,
@@ -303,57 +319,119 @@ export function TaskList({
         </div>
       )}
 
-      <div className="mb-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!canUndo}
-          title="Hoàn tác thao tác vừa rồi (Ctrl + Z)"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
-        >
-          <span>↶</span>
-          <span>Hoàn tác</span>
-        </button>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        {/* Search bar */}
+        <div className="relative w-full max-w-[260px]">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] opacity-60"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm công việc..."
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/55 py-1 pl-8 pr-7 text-xs text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-muted)]/70 focus:border-[var(--mustard)]/60 focus:bg-[var(--bg-main)]"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-[var(--ink-muted)] hover:text-[var(--ink)]"
+              aria-label="Xoá tìm kiếm"
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!canRedo}
-          title="Làm lại thao tác (Ctrl + Y)"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
-        >
-          <span>↷</span>
-          <span>Làm lại</span>
-        </button>
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Hoàn tác thao tác vừa rồi (Ctrl + Z)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
+          >
+            <span>↶</span>
+            <span>Hoàn tác</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Làm lại thao tác (Ctrl + Y)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
+          >
+            <span>↷</span>
+            <span>Làm lại</span>
+          </button>
+        </div>
       </div>
 
-      <section className="ruled-lines w-full min-h-[calc(100dvh-15rem)] border-y border-[var(--border)]">
-        <AnimatePresence initial={false}>
-          {sortedTasks.map((task) => (
-            <TaskItem
-              key={task.id}
-              task={task}
-              onAdvance={handleAdvance}
-              onRevert={handleRevert}
-              onDelete={deleteTask}
-              showCreatedDate={showCreatedDate}
-              isEvening={isEvening}
-            />
-          ))}
-        </AnimatePresence>
+      {(() => {
+        const normalizedQuery = normalizeSearch(search);
+        const visibleTasks = normalizedQuery
+          ? sortedTasks.filter((task) => {
+              const haystack = normalizeSearch(
+                `${task.title} ${task.notes ?? ""} ${task.project?.name ?? ""}`,
+              );
+              return haystack.includes(normalizedQuery);
+            })
+          : sortedTasks;
 
-        {tasks.length === 0 && (
-          <div className="flex min-h-[22rem] items-center justify-center px-6">
-            <p className="max-w-md text-center font-serif text-lg leading-relaxed text-[var(--ink-muted)]">
-              {status === "INPROGRESS"
-                ? "Chưa có công việc nào đang thực hiện."
-                : status === "DONE"
-                  ? "Chưa có công việc nào trong lịch sử."
-                  : "“Trang gi\u1EA5y tr\u1EAFng l\u00E0 s\u1EF1 kh\u1EDFi \u0111\u1EA7u t\u1ED1t nh\u1EA5t”"}
-            </p>
-          </div>
-        )}
-      </section>
+        return (
+          <section className="ruled-lines w-full min-h-[calc(100dvh-15rem)] border-y border-[var(--border)]">
+            <AnimatePresence initial={false}>
+              {visibleTasks.map((task) => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onAdvance={handleAdvance}
+                  onRevert={handleRevert}
+                  onSelect={setSelectedTask}
+                  onDelete={deleteTask}
+                  showCreatedDate={showCreatedDate}
+                  isEvening={isEvening}
+                />
+              ))}
+            </AnimatePresence>
+
+            {visibleTasks.length === 0 && (
+              <div className="flex min-h-[22rem] items-center justify-center px-6">
+                <p className="max-w-md text-center font-serif text-lg leading-relaxed text-[var(--ink-muted)]">
+                  {normalizedQuery
+                    ? `Không tìm thấy công việc nào khớp với “${search.trim()}”.`
+                    : status === "INPROGRESS"
+                      ? "Chưa có công việc nào đang thực hiện."
+                      : status === "DONE"
+                        ? "Chưa có công việc nào trong lịch sử."
+                        : "“Trang gi\u1EA5y tr\u1EAFng l\u00E0 s\u1EF1 kh\u1EDFi \u0111\u1EA7u t\u1ED1t nh\u1EA5t”"}
+                </p>
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onSave={(updates) => updateTask(updates)}
+          onDelete={deleteTask}
+        />
+      )}
     </div>
   );
 }

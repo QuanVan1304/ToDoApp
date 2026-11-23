@@ -15,6 +15,15 @@ export default async function AppLayout({
   }
 
   const projects = await listProjects(userId);
+  const user = {
+    name: session?.user?.name ?? null,
+    email: session?.user?.email ?? null,
+    image: session?.user?.image ?? null,
+  };
 
-  return <AppShell projects={projects}>{children}</AppShell>;
+  return (
+    <AppShell projects={projects} user={user}>
+      {children}
+    </AppShell>
+  );
 }
