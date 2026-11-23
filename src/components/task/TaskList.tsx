@@ -3,7 +3,7 @@
 import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
 import { useTasks } from "@/hooks/useTasks";
-import { getDaysOld } from "@/lib/utils";
+import { getDaysOld, isVietnamEvening } from "@/lib/utils";
 import type { Status } from "@/types";
 
 interface TaskListProps {
@@ -54,6 +54,11 @@ export function TaskList({
   }
 
   const activeTasks = tasks.filter((t) => t.status !== "DONE");
+  const isEvening = isVietnamEvening(18);
+  const untouchedCount = activeTasks.filter((t) => t.status === "TODO").length;
+  const inProgressCount = activeTasks.filter(
+    (t) => t.status === "INPROGRESS",
+  ).length;
   const criticalCount = activeTasks.filter(
     (t) => getDaysOld(t.createdAt) >= 7,
   ).length;
@@ -80,6 +85,46 @@ export function TaskList({
 
   return (
     <div className="w-full">
+      {isEvening && activeTasks.length > 0 && (
+        <div className="mb-3 flex items-start gap-3 rounded-xl border border-[var(--mustard)]/35 bg-[var(--mustard)]/[0.08] px-4 py-3 text-sm text-[var(--ink)]">
+          <span
+            className="mt-0.5 font-mono text-xs font-semibold"
+            style={{ color: "var(--mustard)" }}
+          >
+            ☾
+          </span>
+
+          <div className="min-w-0 flex-1 leading-relaxed">
+            <span className="font-medium text-[var(--mustard)]">
+              Nhắc nhở cuối ngày:{" "}
+            </span>
+            <span>
+              {untouchedCount > 0 && inProgressCount > 0 ? (
+                <>
+                  Bạn vẫn còn{" "}
+                  <strong>{untouchedCount} việc chưa đụng tới</strong> và{" "}
+                  <strong>{inProgressCount} việc đang làm dở</strong>. Hãy
+                  tranh thủ hoàn tất hoặc khởi động trước khi bước sang ngày
+                  mới nhé!
+                </>
+              ) : untouchedCount > 0 ? (
+                <>
+                  Đã cuối ngày nhưng bạn vẫn còn{" "}
+                  <strong>{untouchedCount} công việc chưa bắt đầu</strong>. Hãy
+                  bấm <strong>Làm ngay</strong> hoặc tick ô vuông để khởi động!
+                </>
+              ) : (
+                <>
+                  Bạn đang có{" "}
+                  <strong>{inProgressCount} công việc làm dở</strong> — cố gắng
+                  hoàn thành nốt trước khi kết thúc ngày hôm nay nhé!
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
       {(criticalCount > 0 || warnCount > 0) && (
         <div
           className={`mb-5 flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${

@@ -53,3 +53,13 @@ export function getDaysOld(date: Date | string | null): number {
   const diffDays = Math.floor((todayUtc - createdUtc) / 86_400_000);
   return Math.max(0, diffDays);
 }
+
+export function isVietnamEvening(startHour = 18): boolean {
+  const hourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "numeric",
+    hour12: false,
+  }).format(new Date());
+  const hour = Number(hourStr) % 24;
+  return hour >= startHour;
+}

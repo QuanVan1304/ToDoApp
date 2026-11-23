@@ -7,6 +7,7 @@ import {
   formatFullDate,
   getDaysOld,
   isBeforeToday,
+  isVietnamEvening,
 } from "@/lib/utils";
 import type { Status, TaskWithRelations } from "@/types";
 
@@ -33,6 +34,7 @@ export function TaskItem({
   const isPending = task.id.startsWith("temp-");
   const isDone = task.status === "DONE";
   const isInProgress = task.status === "INPROGRESS";
+  const isEvening = !isDone && isVietnamEvening(18);
   const daysOld = !isDone && task.createdAt ? getDaysOld(task.createdAt) : 0;
   const isAgingWarn = daysOld >= 3 && daysOld < 7;
   const isAgingCritical = daysOld >= 7;
@@ -96,24 +98,43 @@ export function TaskItem({
           )}
         </div>
 
-        {shouldShowCreatedDate && (
+        {(shouldShowCreatedDate || isEvening) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[0.7rem] text-[var(--ink-muted)]">
-            <span>{formatFullDate(task.createdAt)}</span>
+            {shouldShowCreatedDate && (
+              <>
+                <span>{formatFullDate(task.createdAt)}</span>
 
-            {!isDone && daysOld >= 7 && (
-              <span className="inline-flex items-center rounded bg-[var(--brick)]/12 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--brick)]">
-                Tồn {daysOld} ngày
-              </span>
+                {!isDone && daysOld >= 7 && (
+                  <span className="inline-flex items-center rounded bg-[var(--brick)]/12 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--brick)]">
+                    Tồn {daysOld} ngày
+                  </span>
+                )}
+
+                {!isDone && daysOld >= 3 && daysOld < 7 && (
+                  <span className="inline-flex items-center rounded bg-[var(--mustard)]/15 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--mustard)]">
+                    Ngâm {daysOld} ngày
+                  </span>
+                )}
+
+                {!isDone && daysOld >= 1 && daysOld < 3 && (
+                  <span>· {daysOld} ngày trước</span>
+                )}
+              </>
             )}
 
-            {!isDone && daysOld >= 3 && daysOld < 7 && (
-              <span className="inline-flex items-center rounded bg-[var(--mustard)]/15 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--mustard)]">
-                Ngâm {daysOld} ngày
+            {isEvening && (
+              <span
+                className={`font-sans text-[0.72rem] ${
+                  isInProgress
+                    ? "text-[var(--teal)]"
+                    : "text-[var(--mustard)]"
+                }`}
+              >
+                {shouldShowCreatedDate ? "· " : ""}
+                {isInProgress
+                  ? "◷ Đang làm dở — cố hoàn thành nốt trong hôm nay"
+                  : "☾ Cuối ngày rồi — việc này chưa được đụng tới"}
               </span>
-            )}
-
-            {!isDone && daysOld >= 1 && daysOld < 3 && (
-              <span>· {daysOld} ngày trước</span>
             )}
           </div>
         )}
@@ -136,7 +157,7 @@ export function TaskItem({
         </span>
       )}
 
-      {!isPending && !isDone && daysOld >= 3 && (
+      {!isPending && !isDone && (daysOld >= 3 || isEvening) && (
         <button
           type="button"
           onClick={() => onAdvance(task.id, task.status)}
