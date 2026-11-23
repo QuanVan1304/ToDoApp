@@ -19,7 +19,7 @@ export default async function ProjectPage({
 
   const project = await prisma.project.findFirst({
     where: { id, userId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, color: true },
   });
 
   if (!project) {
@@ -28,11 +28,21 @@ export default async function ProjectPage({
 
   return (
     <div className="w-full px-6 py-10 sm:px-10 lg:px-14">
-      <h1 className="mb-8 font-serif text-3xl text-[var(--ink)]">
-        {project.name}
-      </h1>
+      <div className="mb-6 flex items-center gap-3">
+        <span
+          className="h-3 w-3 shrink-0 rounded-full"
+          style={{ backgroundColor: project.color || "var(--mustard)" }}
+        />
+        <h1 className="font-serif text-3xl text-[var(--ink)]">
+          {project.name}
+        </h1>
+      </div>
 
-      <TaskList projectId={project.id} />
+      <TaskList
+        projectId={project.id}
+        projectColor={project.color}
+        showCreatedDate
+      />
     </div>
   );
 }

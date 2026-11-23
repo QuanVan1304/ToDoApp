@@ -15,14 +15,10 @@ interface RailProject {
 
 interface RailProps {
   projects: RailProject[];
-  isAgentOpen: boolean;
-  onToggleAgent: () => void;
 }
 
 export function Rail({
   projects,
-  isAgentOpen,
-  onToggleAgent,
 }: RailProps) {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
@@ -211,42 +207,6 @@ export function Rail({
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--brick)]" />
             )}
           </Link>
-        <button
-          onClick={onToggleAgent}
-          className={`mt-1 flex h-10 w-full items-center gap-3 rounded-[9px] px-3 transition-all ${
-            isAgentOpen
-              ? "bg-[var(--bg-main)] text-[var(--ink)] shadow-sm"
-              : "text-[var(--ink-muted)] hover:bg-black/[0.035] hover:text-[var(--ink)] dark:hover:bg-white/[0.035]"
-          }`}
-        >
-          <span
-            className={`flex h-6 w-6 items-center justify-center rounded-md ${
-              isAgentOpen
-                ? "bg-[var(--teal)]/15 text-[var(--teal)]"
-                : "text-[var(--ink-muted)]"
-            }`}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z" />
-              <path d="M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z" />
-            </svg>
-          </span>
-
-          <span className="flex-1 text-left text-[0.84rem] font-medium">
-            Trợ lý AI
-          </span>
-
-          <span className="text-[10px] opacity-40">
-            {isAgentOpen ? "ON" : "⌘K"}
-          </span>
-        </button>
       </nav>
 
       {/* Projects */}

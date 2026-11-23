@@ -7,7 +7,6 @@ import {
   formatFullDate,
   getDaysOld,
   isBeforeToday,
-  isVietnamEvening,
 } from "@/lib/utils";
 import type { Status, TaskWithRelations } from "@/types";
 
@@ -21,20 +20,24 @@ const PRIORITY_COLOR: Record<string, string> = {
 interface TaskItemProps {
   task: TaskWithRelations;
   onAdvance: (id: string, currentStatus: Status) => void;
+  onRevert?: (id: string, currentStatus: Status) => void;
   onDelete: (id: string) => void;
   showCreatedDate?: boolean | "past-only";
+  isEvening?: boolean;
 }
 
 export function TaskItem({
   task,
   onAdvance,
+  onRevert,
   onDelete,
   showCreatedDate = false,
+  isEvening: isEveningProp = false,
 }: TaskItemProps) {
   const isPending = task.id.startsWith("temp-");
   const isDone = task.status === "DONE";
   const isInProgress = task.status === "INPROGRESS";
-  const isEvening = !isDone && isVietnamEvening();
+  const isEvening = !isDone && isEveningProp;
   const daysOld = !isDone && task.createdAt ? getDaysOld(task.createdAt) : 0;
   const isAgingWarn = daysOld >= 3 && daysOld < 7;
   const isAgingCritical = daysOld >= 7;
@@ -94,6 +97,18 @@ export function TaskItem({
           {isInProgress && (
             <span className="ml-2 inline-flex rounded-full bg-[var(--teal)]/12 px-2 py-0.5 text-[10px] font-medium text-[var(--teal)]">
               Đang làm
+            </span>
+          )}
+
+          {task.project && (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2 py-0.5 font-mono text-[10px] text-[var(--ink-muted)]">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor: task.project.color || "var(--mustard)",
+                }}
+              />
+              {task.project.name}
             </span>
           )}
         </div>
@@ -168,6 +183,21 @@ export function TaskItem({
           }`}
         >
           {isInProgress ? "Xong ngay" : "Làm ngay"}
+        </button>
+      )}
+
+      {!isPending && onRevert && (isInProgress || isDone) && (
+        <button
+          type="button"
+          onClick={() => onRevert(task.id, task.status)}
+          title={
+            isDone
+              ? "Chuyển lại về Đang làm"
+              : "Chuyển lại về Chưa làm (Hôm nay)"
+          }
+          className="mt-0.5 shrink-0 text-[11px] text-[var(--ink-muted)] opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
+        >
+          ↶ Lùi
         </button>
       )}
 

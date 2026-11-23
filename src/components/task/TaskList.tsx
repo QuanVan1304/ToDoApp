@@ -1,16 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
 import { useTasks } from "@/hooks/useTasks";
 import { getDaysOld, isVietnamEvening } from "@/lib/utils";
 import type { Status } from "@/types";
 
+function subscribeEveningClock(onStoreChange: () => void) {
+  const timer = setInterval(onStoreChange, 1_000);
+  return () => clearInterval(timer);
+}
+
 interface TaskListProps {
   status?: Status;
   statuses?: Status[];
   projectId?: string;
+  projectColor?: string | null;
   todayOnly?: boolean;
   showCreatedDate?: boolean | "past-only";
 }
@@ -25,24 +31,60 @@ export function TaskList({
   status,
   statuses,
   projectId,
+  projectColor,
   todayOnly,
   showCreatedDate = false,
 }: TaskListProps) {
-  const { tasks, isLoading, updateTaskStatus, deleteTask } = useTasks({
+  const {
+    tasks,
+    isLoading,
+    updateTaskStatus,
+    deleteTask,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+  } = useTasks({
     status,
     statuses,
     projectId,
     todayOnly,
   });
 
-  const [isEvening, setIsEvening] = useState(() => isVietnamEvening());
+  const isEvening = useSyncExternalStore(
+    subscribeEveningClock,
+    () => isVietnamEvening(),
+    () => false,
+  );
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setIsEvening(isVietnamEvening());
-    }, 15_000);
-    return () => clearInterval(timer);
-  }, []);
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const isMod = event.ctrlKey || event.metaKey;
+      if (!isMod) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undo();
+      } else if (key === "y" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        redo();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo]);
 
   function handleAdvance(id: string, currentStatus: Status) {
     if (currentStatus === "TODO") {
@@ -55,6 +97,17 @@ export function TaskList({
     }
   }
 
+  function handleRevert(id: string, currentStatus: Status) {
+    if (currentStatus === "DONE") {
+      updateTaskStatus({ id, status: "INPROGRESS" });
+      return;
+    }
+
+    if (currentStatus === "INPROGRESS") {
+      updateTaskStatus({ id, status: "TODO" });
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="w-full py-12 text-center font-mono text-sm text-[var(--ink-muted)]">
@@ -63,11 +116,17 @@ export function TaskList({
     );
   }
 
+  const totalCount = tasks.length;
+  const doneCount = tasks.filter((t) => t.status === "DONE").length;
   const activeTasks = tasks.filter((t) => t.status !== "DONE");
   const untouchedCount = activeTasks.filter((t) => t.status === "TODO").length;
   const inProgressCount = activeTasks.filter(
     (t) => t.status === "INPROGRESS",
   ).length;
+  const donePercent =
+    totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const inProgressPercent =
+    totalCount > 0 ? Math.round((inProgressCount / totalCount) * 100) : 0;
   const criticalCount = activeTasks.filter(
     (t) => getDaysOld(t.createdAt) >= 7,
   ).length;
@@ -92,8 +151,69 @@ export function TaskList({
     return a.order - b.order;
   });
 
+  const accentColor =
+    donePercent === 100 ? "var(--teal)" : projectColor || "var(--teal)";
+
   return (
     <div className="w-full">
+      {projectId && (
+        <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-rail)]/65 px-5 py-4">
+          <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-xs uppercase tracking-wider text-[var(--ink-muted)]">
+                Tiến độ dự án
+              </span>
+              <span
+                className="font-serif text-xl font-semibold"
+                style={{ color: accentColor }}
+              >
+                {donePercent}%
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-[var(--ink-muted)]">
+              <span>
+                <strong className="text-[var(--ink)]">{doneCount}</strong>/
+                {totalCount} hoàn thành
+              </span>
+              {inProgressCount > 0 && (
+                <span className="text-[var(--teal)]">
+                  · {inProgressCount} đang làm
+                </span>
+              )}
+              {untouchedCount > 0 && (
+                <span>· {untouchedCount} chưa làm</span>
+              )}
+            </div>
+          </div>
+
+          <div className="relative flex h-2.5 w-full overflow-hidden rounded-full bg-black/8 dark:bg-white/10">
+            <div
+              className="h-full transition-all duration-300 ease-out"
+              style={{
+                width: `${donePercent}%`,
+                backgroundColor: accentColor,
+              }}
+            />
+            {inProgressPercent > 0 && (
+              <div
+                className="h-full opacity-35 transition-all duration-300 ease-out"
+                style={{
+                  width: `${Math.min(100 - donePercent, inProgressPercent)}%`,
+                  backgroundColor: accentColor,
+                }}
+              />
+            )}
+          </div>
+
+          {totalCount > 0 && donePercent === 100 && (
+            <p className="mt-2.5 font-serif text-xs italic text-[var(--teal)]">
+              ✓ Toàn bộ công việc trong dự án dài hạn này đã hoàn tất 100%!
+            </p>
+          )}
+        </div>
+      )}
+
       {isEvening && activeTasks.length > 0 && (
         <div className="mb-3 flex items-start gap-3 rounded-xl border border-[var(--mustard)]/35 bg-[var(--mustard)]/[0.08] px-4 py-3 text-sm text-[var(--ink)]">
           <span
@@ -112,7 +232,7 @@ export function TaskList({
                 <>
                   Bạn vẫn còn{" "}
                   <strong>{untouchedCount} việc chưa đụng tới</strong> và{" "}
-                  <strong>{inProgressCount} việc đang làm dở</strong>. Hãy
+                  <strong>{inProgressCount} việc chưa hoàn thành</strong>. Hãy
                   tranh thủ hoàn tất hoặc khởi động trước khi bước sang ngày
                   mới nhé!
                 </>
@@ -125,8 +245,8 @@ export function TaskList({
               ) : (
                 <>
                   Bạn đang có{" "}
-                  <strong>{inProgressCount} công việc làm dở</strong> — cố gắng
-                  hoàn thành nốt trước khi kết thúc ngày hôm nay nhé!
+                  <strong>{inProgressCount} công việc chưa hoàn thành</strong> — cố gắng
+                  làm cho xong trước khi kết thúc ngày hôm nay nhé!
                 </>
               )}
             </span>
@@ -183,6 +303,30 @@ export function TaskList({
         </div>
       )}
 
+      <div className="mb-3 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={undo}
+          disabled={!canUndo}
+          title="Hoàn tác thao tác vừa rồi (Ctrl + Z)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
+        >
+          <span>↶</span>
+          <span>Hoàn tác</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={redo}
+          disabled={!canRedo}
+          title="Làm lại thao tác (Ctrl + Y)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)]/70 px-2.5 py-1 font-mono text-xs text-[var(--ink)] transition-all hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/5"
+        >
+          <span>↷</span>
+          <span>Làm lại</span>
+        </button>
+      </div>
+
       <section className="ruled-lines w-full min-h-[calc(100dvh-15rem)] border-y border-[var(--border)]">
         <AnimatePresence initial={false}>
           {sortedTasks.map((task) => (
@@ -190,8 +334,10 @@ export function TaskList({
               key={task.id}
               task={task}
               onAdvance={handleAdvance}
+              onRevert={handleRevert}
               onDelete={deleteTask}
               showCreatedDate={showCreatedDate}
+              isEvening={isEvening}
             />
           ))}
         </AnimatePresence>

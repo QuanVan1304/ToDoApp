@@ -20,9 +20,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rawHistory = Array.isArray(body.history) ? body.history : [];
+    const history = rawHistory
+      .filter(
+        (item: unknown): item is { role: "user" | "assistant"; content: string } =>
+          typeof item === "object" &&
+          item !== null &&
+          ((item as { role?: unknown }).role === "user" ||
+            (item as { role?: unknown }).role === "assistant") &&
+          typeof (item as { content?: unknown }).content === "string",
+      )
+      .slice(-6);
+
     const result = await runAgentTurn(
       session.user.id,
       body.message,
+      history,
     );
 
     return NextResponse.json(result);

@@ -54,8 +54,7 @@ export function getDaysOld(date: Date | string | null): number {
   return Math.max(0, diffDays);
 }
 
-// Đổi giờ nhắc nhở cuối ngày tại đúng 1 dòng này (định dạng "HH:mm", ví dụ "09:40" hoặc "18:30")
-export const EVENING_REMINDER_TIME = "18:00";
+export const EVENING_REMINDER_TIME = "20:00";
 
 export function isVietnamEvening(
   time: string = EVENING_REMINDER_TIME,

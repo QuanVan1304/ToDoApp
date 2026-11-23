@@ -1,4 +1,3 @@
-import ollama, { type Message, type Tool } from "ollama";
 import * as taskService from "@/server/services/taskService";
 import { listProjects } from "@/server/services/projectService";
 import {
@@ -6,8 +5,6 @@ import {
   confirmTaskDeletion,
   requestTaskDeletion,
 } from "@/server/services/agentActionService";
-
-const model = process.env.OLLAMA_MODEL ?? "qwen3:14b";
 
 const CONFIRM_WORDS = new Set([
   "xác nhận",
@@ -49,129 +46,112 @@ Quy tắc an toàn:
 - Không được tự nghĩ ra task ID hoặc project ID.
 - Task mới mặc định là TODO.
 - Chỉ chuyển task sang DONE khi người dùng nói rõ đã hoàn thành.
-- Khi user yêu cầu xóa task: gọi list_tasks để tìm task ID, sau đó gọi request_delete_task.
+- Khi user yêu cầu xóa task: gọi find_task_candidates hoặc list_tasks để tìm task ID, sau đó gọi request_delete_task.
 - Không xóa task trực tiếp.
-- Trả lời ngắn gọn, rõ ràng bằng tiếng Việt.
+- Trả lời ngắn gọn, rõ ràng, tự nhiên bằng tiếng Việt (dùng "chưa làm", "đang làm", "đã hoàn thành" thay vì từ kỹ thuật TODO/INPROGRESS/DONE).
+- Khi liệt kê từ 2 công việc hoặc dự án trở lên, LUÔN xuống dòng riêng cho từng mục bằng đánh số (1., 2., 3.) để dễ đọc.
+- Khi user hỏi việc cần làm, việc hôm nay, việc còn lại hoặc gợi ý ưu tiên: luôn gọi list_tasks với status = "ACTIVE" (gồm cả việc chưa làm và đang làm, loại bỏ việc đã xong).
 - Khi user muốn đổi trạng thái hoặc xóa task, luôn gọi find_task_candidates trước.
 - Nếu chỉ có một kết quả phù hợp, dùng id từ kết quả đó.
 - Nếu có nhiều kết quả, hỏi user chọn số.
 - Tuyệt đối không tự tạo hoặc đoán taskId.
 `.trim();
 
-const tools: Tool[] = [
+const functionDeclarations = [
   {
-    type: "function",
-    function: {
-      name: "list_tasks",
-      description:
-        "Lấy danh sách task của user. Dùng trước khi tìm, cập nhật hoặc xóa task.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["TODO", "INPROGRESS", "DONE"],
-          },
-          search: {
-            type: "string",
-            description: "Từ khóa tìm trong tiêu đề hoặc ghi chú.",
-          },
+    name: "list_tasks",
+    description:
+      "Lấy danh sách công việc của user. Mặc định dùng status='ACTIVE' để lấy toàn bộ việc cần làm (gồm cả TODO và INPROGRESS, không lấy DONE).",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        status: {
+          type: "STRING",
+          enum: ["ACTIVE", "TODO", "INPROGRESS", "DONE"],
+          description:
+            "ACTIVE: tất cả việc chưa xong (TODO + INPROGRESS). Chỉ dùng TODO, INPROGRESS hoặc DONE khi user hỏi riêng một trạng thái cụ thể.",
+        },
+        search: {
+          type: "STRING",
+          description: "Từ khóa tìm trong tiêu đề hoặc ghi chú.",
         },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "list_projects",
-      description: "Lấy danh sách project của user.",
-      parameters: {
-        type: "object",
-        properties: {},
-      },
-    },
+    name: "list_projects",
+    description: "Lấy danh sách project của user.",
   },
   {
-    type: "function",
-    function: {
-      name: "create_task",
-      description: "Tạo task mới với trạng thái TODO.",
-      parameters: {
-        type: "object",
-        required: ["title"],
-        properties: {
-          title: {
-            type: "string",
-            description: "Tên task ngắn gọn bằng tiếng Việt.",
-          },
-          priority: {
-            type: "string",
-            enum: ["LOW", "NORMAL", "HIGH", "URGENT"],
-          },
-          projectId: {
-            type: "string",
-            description: "ID project nếu user chỉ rõ.",
-          },
-          dueDate: {
-            type: "string",
-            description: "Deadline YYYY-MM-DD nếu user chỉ rõ.",
-          },
+    name: "create_task",
+    description: "Tạo task mới với trạng thái TODO.",
+    parameters: {
+      type: "OBJECT",
+      required: ["title"],
+      properties: {
+        title: {
+          type: "STRING",
+          description: "Tên task ngắn gọn bằng tiếng Việt.",
+        },
+        priority: {
+          type: "STRING",
+          enum: ["LOW", "NORMAL", "HIGH", "URGENT"],
+        },
+        projectId: {
+          type: "STRING",
+          description: "ID project nếu user chỉ rõ.",
+        },
+        dueDate: {
+          type: "STRING",
+          description: "Deadline YYYY-MM-DD nếu user chỉ rõ.",
         },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "update_task_status",
-      description:
-        "Cập nhật trạng thái task đã tồn tại. Phải dùng taskId lấy từ list_tasks.",
-      parameters: {
-        type: "object",
-        required: ["taskId", "status"],
-        properties: {
-          taskId: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["TODO", "INPROGRESS", "DONE"],
-          },
+    name: "update_task_status",
+    description:
+      "Cập nhật trạng thái task đã tồn tại. Phải dùng taskId lấy từ list_tasks hoặc find_task_candidates.",
+    parameters: {
+      type: "OBJECT",
+      required: ["taskId", "status"],
+      properties: {
+        taskId: { type: "STRING" },
+        status: {
+          type: "STRING",
+          enum: ["TODO", "INPROGRESS", "DONE"],
         },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "request_delete_task",
-      description:
-        "Tạo yêu cầu xóa task và chờ user xác nhận trong chat. Không xóa trực tiếp.",
-      parameters: {
-        type: "object",
-        required: ["taskId"],
-        properties: {
-          taskId: {
-            type: "string",
-            description: "ID task lấy từ list_tasks.",
-          },
+    name: "request_delete_task",
+    description:
+      "Tạo yêu cầu xóa task và chờ user xác nhận trong chat. Không xóa trực tiếp.",
+    parameters: {
+      type: "OBJECT",
+      required: ["taskId"],
+      properties: {
+        taskId: {
+          type: "STRING",
+          description:
+            "ID task lấy từ list_tasks hoặc find_task_candidates.",
         },
       },
     },
   },
   {
-  type: "function",
-    function: {
-      name: "find_task_candidates",
-      description:
-        "Tìm task theo tên hoặc từ khóa gần đúng. Dùng trước khi cập nhật trạng thái hoặc xóa task.",
-      parameters: {
-        type: "object",
-        required: ["query"],
-        properties: {
-          query: {
-            type: "string",
-            description:
-              "Tên task hoặc từ khóa từ user; có thể thiếu dấu hoặc sai chính tả nhẹ.",
-          },
+    name: "find_task_candidates",
+    description:
+      "Tìm task theo tên hoặc từ khóa gần đúng. Dùng trước khi cập nhật trạng thái hoặc xóa task.",
+    parameters: {
+      type: "OBJECT",
+      required: ["query"],
+      properties: {
+        query: {
+          type: "STRING",
+          description:
+            "Tên task hoặc từ khóa từ user; có thể thiếu dấu hoặc sai chính tả nhẹ.",
         },
       },
     },
@@ -183,18 +163,28 @@ type ToolArgs = Record<string, unknown>;
 async function executeTool(
   userId: string,
   name: string,
-  input: ToolArgs,
+  input: ToolArgs = {},
 ) {
   switch (name) {
     case "list_tasks": {
-      const tasks = await taskService.listTasks(userId, {
-        status: input.status as
-          | "TODO"
-          | "INPROGRESS"
-          | "DONE"
-          | undefined,
-        search: input.search as string | undefined,
-      });
+      const rawStatus = input.status as
+        | "ACTIVE"
+        | "TODO"
+        | "INPROGRESS"
+        | "DONE"
+        | undefined;
+      const search = input.search as string | undefined;
+
+      const tasks =
+        !rawStatus || rawStatus === "ACTIVE"
+          ? await taskService.listTasks(userId, {
+              statuses: ["TODO", "INPROGRESS"],
+              search,
+            })
+          : await taskService.listTasks(userId, {
+              status: rawStatus,
+              search,
+            });
 
       return tasks.map((task) => ({
         id: task.id,
@@ -246,16 +236,12 @@ async function executeTool(
       if (!existingTask) {
         return {
           error:
-            "Không tìm thấy công việc này. Hãy dùng list_tasks để lấy đúng taskId trước khi cập nhật.",
+            "Không tìm thấy công việc này. Hãy dùng find_task_candidates hoặc list_tasks để lấy đúng taskId trước khi cập nhật.",
         };
       }
-      const task = await taskService.updateTask(
-        userId,
-        String(input.taskId),
-        {
-          status: input.status as "TODO" | "INPROGRESS" | "DONE",
-        },
-      );
+      const task = await taskService.updateTask(userId, taskId, {
+        status: input.status as "TODO" | "INPROGRESS" | "DONE",
+      });
 
       return {
         id: task.id,
@@ -265,11 +251,9 @@ async function executeTool(
     }
 
     case "request_delete_task": {
-      return requestTaskDeletion(
-        userId,
-        String(input.taskId),
-      );
+      return requestTaskDeletion(userId, String(input.taskId));
     }
+
     case "find_task_candidates": {
       return taskService.findTaskCandidates(
         userId,
@@ -282,15 +266,42 @@ async function executeTool(
   }
 }
 
+interface GeminiPart {
+  text?: string;
+  functionCall?: {
+    name: string;
+    args?: Record<string, unknown>;
+  };
+  functionResponse?: {
+    name: string;
+    response: Record<string, unknown>;
+  };
+  [key: string]: unknown;
+}
+
+interface GeminiContent {
+  role: "user" | "model";
+  parts: GeminiPart[];
+}
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: GeminiContent;
+  }>;
+  error?: {
+    message?: string;
+  };
+}
+
 export async function runAgentTurn(
   userId: string,
   rawMessage: string,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
 ) {
   const message = rawMessage.trim();
   const normalizedMessage = message.toLowerCase();
 
   // Xác nhận/hủy được xử lý trực tiếp ở backend.
-  // Không cần Qwen suy luận, nhanh và an toàn hơn.
   if (CONFIRM_WORDS.has(normalizedMessage)) {
     const result = await confirmTaskDeletion(userId);
 
@@ -322,55 +333,153 @@ export async function runAgentTurn(
     };
   }
 
-  const messages: Message[] = [
-    {
-      role: "system",
-      content: SYSTEM_PROMPT,
-    },
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      message:
+        "Chưa có GEMINI_API_KEY trong file .env. Bạn hãy lấy key miễn phí tại https://aistudio.google.com/apikey rồi dán vào GEMINI_API_KEY trong file .env nhé!",
+    };
+  }
+
+  const primaryModel =
+    process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
+  const candidateModels = Array.from(
+    new Set([
+      primaryModel,
+      "gemini-3.5-flash-lite",
+      "gemini-flash-lite-latest",
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+    ]),
+  );
+
+  let pinnedModel: string | null = null;
+
+  const contents: GeminiContent[] = [
+    ...history.map((item) => ({
+      role: (item.role === "assistant" ? "model" : "user") as
+        | "user"
+        | "model",
+      parts: [{ text: item.content }],
+    })),
     {
       role: "user",
-      content: message,
+      parts: [{ text: message }],
     },
   ];
 
   // Tối đa ba vòng: model → tool → model.
   for (let step = 0; step < 3; step++) {
-    const response = await ollama.chat({
-      model,
-      messages,
-      tools,
-      stream: false,
-      think: false,
-      keep_alive: "30m",
-      options: {
-        temperature: 0.2,
-        num_predict: 80,
-        num_ctx: 4096,
-      },
-    });
+    let data: GeminiResponse | null = null;
+    let lastErrorMessage = "";
 
-    messages.push(response.message);
+    const modelsToTry: string[] = pinnedModel
+      ? [pinnedModel, ...candidateModels.filter((m) => m !== pinnedModel)]
+      : candidateModels;
 
-    const toolCalls = response.message.tool_calls ?? [];
+    for (const model of modelsToTry) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model,
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-    if (toolCalls.length === 0) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(8_000),
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: SYSTEM_PROMPT }],
+            },
+            contents,
+            tools: [{ functionDeclarations }],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 1024,
+            },
+          }),
+        });
+
+        const body = (await res.json()) as GeminiResponse;
+
+        if (res.ok) {
+          data = body;
+          pinnedModel = model;
+          break;
+        }
+
+        lastErrorMessage =
+          body.error?.message || `Gemini API lỗi (${res.status})`;
+
+        // Nếu lỗi tạm thời (quá tải 503, giới hạn 429, model không khả dụng 404, lỗi 500) -> thử model dự phòng tiếp theo
+        if ([404, 429, 500, 503].includes(res.status)) {
+          console.warn(
+            `[Gemini Fallback] ${model} trả về ${res.status}: ${lastErrorMessage}`,
+          );
+          continue;
+        }
+
+        throw new Error(lastErrorMessage);
+      } catch (err) {
+        if (err instanceof Error && err.name === "TimeoutError") {
+          console.warn(`[Gemini Fallback] ${model} quá thời gian 8s, đổi model.`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!data) {
       return {
         message:
-          response.message.content ||
-          "Tôi chưa thể tạo phản hồi.",
+          "Máy chủ Gemini đang hơi quá tải tạm thời, bạn thử gửi lại sau vài giây nhé!",
       };
     }
 
-    for (const call of toolCalls) {
-      const result = await executeTool(
-        userId,
-        call.function.name,
-        call.function.arguments as ToolArgs,
+    const modelContent = data.candidates?.[0]?.content;
+    const parts = modelContent?.parts ?? [];
+
+    if (!modelContent || parts.length === 0) {
+      return {
+        message: "Tôi chưa thể tạo phản hồi.",
+      };
+    }
+
+    contents.push(modelContent);
+
+    const functionCalls = parts
+      .map((p) => p.functionCall)
+      .filter(
+        (
+          fc,
+        ): fc is {
+          name: string;
+          args?: Record<string, unknown>;
+        } => Boolean(fc),
       );
 
-      // Với các action ghi dữ liệu: trả ngay, không cần Qwen chạy thêm
-      // chỉ để tạo một câu xác nhận.
-      if (call.function.name === "create_task") {
+    if (functionCalls.length === 0) {
+      const textReply = parts
+        .filter((p) => !p.thought)
+        .map((p) => p.text ?? "")
+        .join("")
+        .trim();
+
+      return {
+        message: textReply || "Tôi chưa thể tạo phản hồi.",
+      };
+    }
+
+    const responseParts: GeminiPart[] = [];
+
+    for (const call of functionCalls) {
+      const result = await executeTool(
+        userId,
+        call.name,
+        call.args ?? {},
+      );
+
+      if (call.name === "create_task") {
         const task = result as {
           id: string;
           title: string;
@@ -386,23 +495,26 @@ export async function runAgentTurn(
         };
       }
 
-      if (call.function.name === "update_task_status") {
-        const task = result as {
-          id: string;
-          title: string;
-          status: string;
+      if (call.name === "update_task_status") {
+        const resultObj = result as {
+          id?: string;
+          title?: string;
+          status?: string;
+          error?: string;
         };
 
-        return {
-          message: `Đã cập nhật công việc: ${task.title}.`,
-          mutation: {
-            type: "update_task_status",
-            task,
-          },
-        };
+        if (!resultObj.error && resultObj.id && resultObj.title) {
+          return {
+            message: `Đã cập nhật công việc: ${resultObj.title}.`,
+            mutation: {
+              type: "update_task_status",
+              task: resultObj,
+            },
+          };
+        }
       }
 
-      if (call.function.name === "request_delete_task") {
+      if (call.name === "request_delete_task") {
         const task = result as {
           id: string;
           title: string;
@@ -415,13 +527,18 @@ export async function runAgentTurn(
         };
       }
 
-      // Tool đọc dữ liệu: gửi output trở lại Qwen để nó trả lời tự nhiên.
-      messages.push({
-        role: "tool",
-        tool_name: call.function.name,
-        content: JSON.stringify(result),
+      responseParts.push({
+        functionResponse: {
+          name: call.name,
+          response: { result },
+        },
       });
     }
+
+    contents.push({
+      role: "user",
+      parts: responseParts,
+    });
   }
 
   return {
