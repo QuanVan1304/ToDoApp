@@ -11,6 +11,7 @@ export default function TodayPage() {
         statuses={["TODO", "INPROGRESS"]}
         todayOnly
         showCreatedDate="past-only"
+        splitActiveSections
       />
     </div>
   );

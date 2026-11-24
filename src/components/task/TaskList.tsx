@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { AnimatePresence } from "framer-motion";
 import { TaskItem } from "./TaskItem";
 import { TaskDetailModal } from "./TaskDetailModal";
 import { useTasks } from "@/hooks/useTasks";
 import {
   getDaysOld,
+  getDaysUntilDue,
   isThisWeekVietnam,
   isTodayVietnam,
   isVietnamEvening,
@@ -34,6 +36,7 @@ interface TaskListProps {
   projectColor?: string | null;
   todayOnly?: boolean;
   showCreatedDate?: boolean | "past-only";
+  splitActiveSections?: boolean;
 }
 
 const STATUS_RANK: Record<Status, number> = {
@@ -56,6 +59,7 @@ export function TaskList({
   projectColor,
   todayOnly,
   showCreatedDate = false,
+  splitActiveSections = false,
 }: TaskListProps) {
   const {
     tasks,
@@ -162,10 +166,33 @@ export function TaskList({
     totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const inProgressPercent =
     totalCount > 0 ? Math.round((inProgressCount / totalCount) * 100) : 0;
-  const criticalCount = activeTasks.filter(
+
+  // Nhóm 1: Việc CÓ hạn chót (nhắc trước 1 ngày, đúng hạn, quá hạn)
+  const overdueCount = activeTasks.filter((t) => {
+    const d = getDaysUntilDue(t.dueDate);
+    return d !== null && d < 0;
+  }).length;
+  const dueTodayCount = activeTasks.filter(
+    (t) => getDaysUntilDue(t.dueDate) === 0,
+  ).length;
+  const dueTomorrowCount = activeTasks.filter(
+    (t) => getDaysUntilDue(t.dueDate) === 1,
+  ).length;
+  const hasDeadlineAlert =
+    overdueCount > 0 || dueTodayCount > 0 || dueTomorrowCount > 0;
+
+  // Nhóm 2: Việc KHÔNG gắn hạn chót (áp dụng nhắc cuối ngày & cảnh báo ngâm 3–7 ngày)
+  const noDueActiveTasks = activeTasks.filter((t) => !t.dueDate);
+  const untouchedNoDueCount = noDueActiveTasks.filter(
+    (t) => t.status === "TODO",
+  ).length;
+  const inProgressNoDueCount = noDueActiveTasks.filter(
+    (t) => t.status === "INPROGRESS",
+  ).length;
+  const criticalCount = noDueActiveTasks.filter(
     (t) => getDaysOld(t.createdAt) >= 7,
   ).length;
-  const warnCount = activeTasks.filter((t) => {
+  const warnCount = noDueActiveTasks.filter((t) => {
     const d = getDaysOld(t.createdAt);
     return d >= 3 && d < 7;
   }).length;
@@ -183,8 +210,19 @@ export function TaskList({
         PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority];
       if (priorityDiff !== 0) return priorityDiff;
 
-      const ageA = getDaysOld(a.createdAt);
-      const ageB = getDaysOld(b.createdAt);
+      const dueA = getDaysUntilDue(a.dueDate);
+      const dueB = getDaysUntilDue(b.dueDate);
+      const dueUrgencyA =
+        dueA === null ? 0 : dueA < 0 ? 3 : dueA === 0 ? 2 : dueA === 1 ? 1 : 0;
+      const dueUrgencyB =
+        dueB === null ? 0 : dueB < 0 ? 3 : dueB === 0 ? 2 : dueB === 1 ? 1 : 0;
+      if (dueUrgencyA !== dueUrgencyB) return dueUrgencyB - dueUrgencyA;
+      if (dueA !== null && dueB !== null && dueA !== dueB) {
+        return dueA - dueB;
+      }
+
+      const ageA = a.dueDate ? 0 : getDaysOld(a.createdAt);
+      const ageB = b.dueDate ? 0 : getDaysOld(b.createdAt);
       const tierA = ageA >= 7 ? 2 : ageA >= 3 ? 1 : 0;
       const tierB = ageB >= 7 ? 2 : ageB >= 3 ? 1 : 0;
       if (tierA !== tierB) return tierB - tierA;
@@ -282,7 +320,58 @@ export function TaskList({
         </div>
       )}
 
-      {isEvening && activeTasks.length > 0 && (
+      {hasDeadlineAlert && (
+        <div
+          className={`mb-3 flex items-start gap-3 rounded-xl border px-4 py-3 text-sm text-[var(--ink)] ${
+            overdueCount > 0 || dueTodayCount > 0
+              ? "border-[var(--brick)]/35 bg-[var(--brick)]/[0.06]"
+              : "border-[var(--mustard)]/35 bg-[var(--mustard)]/[0.08]"
+          }`}
+        >
+          <span
+            className="mt-0.5 font-mono text-xs font-semibold"
+            style={{
+              color:
+                overdueCount > 0 || dueTodayCount > 0
+                  ? "var(--brick)"
+                  : "var(--mustard)",
+            }}
+          >
+            {overdueCount > 0 || dueTodayCount > 0 ? "⚡" : "⏰"}
+          </span>
+
+          <div className="min-w-0 flex-1 leading-relaxed">
+            <span
+              className="font-medium"
+              style={{
+                color:
+                  overdueCount > 0 || dueTodayCount > 0
+                    ? "var(--brick)"
+                    : "var(--mustard)",
+              }}
+            >
+              Nhắc hạn chót:{" "}
+            </span>
+            <span>
+              Bạn đang có{" "}
+              {[
+                overdueCount > 0 ? `${overdueCount} việc đã quá hạn` : null,
+                dueTodayCount > 0
+                  ? `${dueTodayCount} việc đến hạn hôm nay`
+                  : null,
+                dueTomorrowCount > 0
+                  ? `${dueTomorrowCount} việc hết hạn vào ngày mai`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+              . Hãy ưu tiên hoàn thành sớm cho xong nhé!
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isEvening && noDueActiveTasks.length > 0 && (
         <div className="mb-3 flex items-start gap-3 rounded-xl border border-[var(--mustard)]/35 bg-[var(--mustard)]/[0.08] px-4 py-3 text-sm text-[var(--ink)]">
           <span
             className="mt-0.5 font-mono text-xs font-semibold"
@@ -296,25 +385,28 @@ export function TaskList({
               Nhắc nhở cuối ngày:{" "}
             </span>
             <span>
-              {untouchedCount > 0 && inProgressCount > 0 ? (
+              {untouchedNoDueCount > 0 && inProgressNoDueCount > 0 ? (
                 <>
                   Bạn vẫn còn{" "}
-                  <strong>{untouchedCount} việc chưa đụng tới</strong> và{" "}
-                  <strong>{inProgressCount} việc chưa hoàn thành</strong>. Hãy
-                  tranh thủ hoàn tất hoặc khởi động trước khi bước sang ngày
+                  <strong>{untouchedNoDueCount} việc chưa đụng tới</strong> và{" "}
+                  <strong>{inProgressNoDueCount} việc chưa hoàn thành</strong>.
+                  Hãy tranh thủ hoàn tất hoặc khởi động trước khi bước sang ngày
                   mới nhé!
                 </>
-              ) : untouchedCount > 0 ? (
+              ) : untouchedNoDueCount > 0 ? (
                 <>
                   Đã cuối ngày nhưng bạn vẫn còn{" "}
-                  <strong>{untouchedCount} công việc chưa bắt đầu</strong>. Hãy
-                  bấm <strong>Làm ngay</strong> hoặc tick ô vuông để khởi động!
+                  <strong>{untouchedNoDueCount} công việc chưa bắt đầu</strong>.
+                  Hãy bấm <strong>Làm ngay</strong> hoặc tick ô vuông để khởi
+                  động!
                 </>
               ) : (
                 <>
                   Bạn đang có{" "}
-                  <strong>{inProgressCount} công việc chưa hoàn thành</strong> — cố gắng
-                  làm cho xong trước khi kết thúc ngày hôm nay nhé!
+                  <strong>
+                    {inProgressNoDueCount} công việc chưa hoàn thành
+                  </strong>{" "}
+                  — cố gắng làm cho xong trước khi kết thúc ngày hôm nay nhé!
                 </>
               )}
             </span>
@@ -442,21 +534,104 @@ export function TaskList({
             })
           : sortedTasks;
 
+        const renderTaskItem = (task: TaskWithRelations) => (
+          <TaskItem
+            key={task.id}
+            task={task}
+            onAdvance={handleAdvance}
+            onRevert={handleRevert}
+            onSelect={setSelectedTask}
+            onDelete={deleteTask}
+            showCreatedDate={showCreatedDate}
+            isEvening={isEvening}
+          />
+        );
+
+        if (splitActiveSections && visibleTasks.length > 0) {
+          const todoVisible = visibleTasks.filter((t) => t.status === "TODO");
+          const inProgressVisible = visibleTasks.filter(
+            (t) => t.status === "INPROGRESS",
+          );
+          const inProgressDueCount = inProgressVisible.filter((t) =>
+            Boolean(t.dueDate),
+          ).length;
+
+          return (
+            <section className="ruled-lines w-full min-h-[calc(100dvh-15rem)] border-y border-[var(--border)]">
+              {/* Khu vực 1: Việc chưa bắt đầu (Hôm nay & tồn TODO) */}
+              {(!normalizedQuery || todoVisible.length > 0) && (
+                <div>
+                  <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-rail)]/40 px-3 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--mustard)]" />
+                      <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-[var(--ink-muted)]">
+                        Việc hôm nay · Chưa bắt đầu
+                      </span>
+                      <span className="rounded-full bg-black/6 px-1.5 py-0.2 font-mono text-[10px] text-[var(--ink)] dark:bg-white/10">
+                        {todoVisible.length}
+                      </span>
+                    </div>
+                  </div>
+
+                  {todoVisible.length > 0 ? (
+                    <AnimatePresence initial={false}>
+                      {todoVisible.map(renderTaskItem)}
+                    </AnimatePresence>
+                  ) : (
+                    <p className="border-b border-[var(--border)] px-3 py-3 font-serif text-xs italic text-[var(--ink-muted)]">
+                      Chưa có việc mới nào cần bắt đầu — tập trung hoàn thành các
+                      việc đang làm dở bên dưới nhé.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Khu vực 2: Việc đang làm dở & có hạn chót */}
+              {inProgressVisible.length > 0 && (
+                <div className={!normalizedQuery || todoVisible.length > 0 ? "mt-6" : ""}>
+                  <div
+                    className={`flex flex-wrap items-center justify-between gap-2 border-[var(--border)] bg-[var(--bg-rail)]/55 px-3 py-1.5 ${
+                      !normalizedQuery || todoVisible.length > 0
+                        ? "border-y"
+                        : "border-b"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+                      <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-[var(--teal)]">
+                        Đang làm dở &amp; Hạn chót
+                      </span>
+                      <span className="rounded-full bg-[var(--teal)]/14 px-1.5 py-0.2 font-mono text-[10px] font-medium text-[var(--teal)]">
+                        {inProgressVisible.length}
+                      </span>
+                      {inProgressDueCount > 0 && (
+                        <span className="font-mono text-[10px] text-[var(--ink-muted)]">
+                          · {inProgressDueCount} có hạn chót
+                        </span>
+                      )}
+                    </div>
+
+                    <Link
+                      href="/in-progress"
+                      className="font-mono text-[11px] text-[var(--ink-muted)] transition-colors hover:text-[var(--teal)]"
+                    >
+                      Mở tab Đang làm →
+                    </Link>
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {inProgressVisible.map(renderTaskItem)}
+                  </AnimatePresence>
+                </div>
+              )}
+            </section>
+          );
+        }
+
         return (
           <section className="ruled-lines w-full min-h-[calc(100dvh-15rem)] border-y border-[var(--border)]">
             <AnimatePresence initial={false}>
-              {visibleTasks.map((task) => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  onAdvance={handleAdvance}
-                  onRevert={handleRevert}
-                  onSelect={setSelectedTask}
-                  onDelete={deleteTask}
-                  showCreatedDate={showCreatedDate}
-                  isEvening={isEvening}
-                />
-              ))}
+              {visibleTasks.map(renderTaskItem)}
             </AnimatePresence>
 
             {visibleTasks.length === 0 && (

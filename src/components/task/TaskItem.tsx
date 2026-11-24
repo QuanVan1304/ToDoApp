@@ -6,6 +6,7 @@ import {
   formatDate,
   formatFullDate,
   getDaysOld,
+  getDaysUntilDue,
   isBeforeToday,
 } from "@/lib/utils";
 import type { Status, TaskWithRelations } from "@/types";
@@ -42,14 +43,28 @@ export function TaskItem({
   const isUrgent = !isDone && task.priority === "URGENT";
   const isHigh = !isDone && task.priority === "HIGH";
   const isLow = !isDone && task.priority === "LOW";
-  const isEvening = !isDone && isEveningProp;
+
+  const hasDueDate = Boolean(task.dueDate);
+  const daysUntilDue =
+    !isDone && hasDueDate ? getDaysUntilDue(task.dueDate) : null;
+  const isDueOverdue = daysUntilDue !== null && daysUntilDue < 0;
+  const isDueToday = daysUntilDue === 0;
+  const isDueTomorrow = daysUntilDue === 1;
+  const isDueSoon = isDueOverdue || isDueToday || isDueTomorrow;
+
+  // Nhắc cuối ngày (20:00) chỉ áp dụng cho việc KHÔNG gắn hạn chót
+  const isEvening = !isDone && !hasDueDate && isEveningProp;
+
+  // Cảnh báo ngâm lâu (3–7 ngày) chỉ áp dụng cho việc KHÔNG gắn hạn chót
   const daysOld = !isDone && task.createdAt ? getDaysOld(task.createdAt) : 0;
-  const isAgingWarn = daysOld >= 3 && daysOld < 7;
-  const isAgingCritical = daysOld >= 7;
-  const isOverdue =
-    !isDone &&
-    task.dueDate &&
-    new Date(task.dueDate).getTime() < new Date().setHours(0, 0, 0, 0);
+  const isAgingWarn = !hasDueDate && daysOld >= 3 && daysOld < 7;
+  const isAgingCritical = !hasDueDate && daysOld >= 7;
+
+  const isCriticalVisual =
+    isUrgent || isDueOverdue || isDueToday || isAgingCritical;
+  const isWarnVisual =
+    !isCriticalVisual && (isHigh || isDueTomorrow || isAgingWarn);
+
   const shouldShowCreatedDate =
     Boolean(task.createdAt) &&
     (showCreatedDate === true ||
@@ -65,11 +80,11 @@ export function TaskItem({
       }}
       exit={{ opacity: 0, x: 16 }}
       className={`group flex items-start gap-[0.6rem] border-b border-[var(--border)] py-[0.7rem] pr-3 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
-        isUrgent
+        isUrgent || isDueOverdue
           ? "border-l-2 border-l-[var(--brick)] bg-[var(--brick)]/[0.045] pl-2.5"
-          : isAgingCritical
+          : isCriticalVisual
             ? "border-l-2 border-l-[var(--brick)] pl-2.5"
-            : isHigh || isAgingWarn
+            : isWarnVisual
               ? "border-l-2 border-l-[var(--mustard)] pl-2.5"
               : ""
       }`}
@@ -86,13 +101,12 @@ export function TaskItem({
 
       <span
         className={`mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full ${
-          isUrgent || isAgingCritical ? "animate-pulse" : ""
+          isCriticalVisual ? "animate-pulse" : ""
         }`}
         style={{
-          backgroundColor:
-            isUrgent || isAgingCritical
-              ? "var(--brick)"
-              : PRIORITY_COLOR[task.priority],
+          backgroundColor: isCriticalVisual
+            ? "var(--brick)"
+            : PRIORITY_COLOR[task.priority],
           boxShadow: isInProgress
             ? "0 0 0 3px color-mix(in srgb, var(--teal) 18%, transparent)"
             : undefined,
@@ -157,28 +171,45 @@ export function TaskItem({
           </p>
         )}
 
-        {(shouldShowCreatedDate || isEvening) && (
+        {(shouldShowCreatedDate || isEvening || isDueSoon) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[0.7rem] text-[var(--ink-muted)]">
             {shouldShowCreatedDate && (
               <>
                 <span>{formatFullDate(task.createdAt)}</span>
 
-                {!isDone && daysOld >= 7 && (
+                {isAgingCritical && (
                   <span className="inline-flex items-center rounded bg-[var(--brick)]/12 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--brick)]">
                     Tồn {daysOld} ngày
                   </span>
                 )}
 
-                {!isDone && daysOld >= 3 && daysOld < 7 && (
+                {isAgingWarn && (
                   <span className="inline-flex items-center rounded bg-[var(--mustard)]/15 px-1.5 py-0.2 font-sans text-[10px] font-medium text-[var(--mustard)]">
                     Ngâm {daysOld} ngày
                   </span>
                 )}
 
-                {!isDone && daysOld >= 1 && daysOld < 3 && (
+                {!isDone && !hasDueDate && daysOld >= 1 && daysOld < 3 && (
                   <span>· {daysOld} ngày trước</span>
                 )}
               </>
+            )}
+
+            {isDueSoon && daysUntilDue !== null && (
+              <span
+                className={`font-sans text-[0.72rem] font-medium ${
+                  isDueOverdue || isDueToday
+                    ? "text-[var(--brick)]"
+                    : "text-[var(--mustard)]"
+                }`}
+              >
+                {shouldShowCreatedDate ? "· " : ""}
+                {isDueOverdue
+                  ? `⚠ Đã quá hạn ${Math.abs(daysUntilDue)} ngày — cần xử lý gấp`
+                  : isDueToday
+                    ? "⚡ Hôm nay là hạn chót — cố gắng hoàn thành cho xong hôm nay!"
+                    : "⏰ Ngày mai đến hạn — hãy tranh thủ hoàn thành sớm nhé"}
+              </span>
             )}
 
             {isEvening && (
@@ -203,7 +234,12 @@ export function TaskItem({
         <span
           className="mt-[2px] shrink-0 font-mono text-[0.72rem]"
           style={{
-            color: isOverdue ? "var(--brick)" : "var(--ink-muted)",
+            color:
+              isDueOverdue || isDueToday
+                ? "var(--brick)"
+                : isDueTomorrow
+                  ? "var(--mustard)"
+                  : "var(--ink-muted)",
           }}
         >
           {formatDate(task.dueDate)}
@@ -216,19 +252,21 @@ export function TaskItem({
         </span>
       )}
 
-      {!isPending && !isDone && (daysOld >= 3 || isEvening) && (
-        <button
-          type="button"
-          onClick={() => onAdvance(task.id, task.status)}
-          className={`mt-0.5 shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-opacity ${
-            isAgingCritical
-              ? "bg-[var(--brick)]/12 text-[var(--brick)] opacity-90 hover:opacity-100"
-              : "bg-[var(--mustard)]/15 text-[var(--mustard)] opacity-0 group-hover:opacity-90 hover:!opacity-100"
-          }`}
-        >
-          {isInProgress ? "Xong ngay" : "Làm ngay"}
-        </button>
-      )}
+      {!isPending &&
+        !isDone &&
+        (isAgingWarn || isAgingCritical || isEvening || isDueSoon) && (
+          <button
+            type="button"
+            onClick={() => onAdvance(task.id, task.status)}
+            className={`mt-0.5 shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-opacity ${
+              isAgingCritical || isDueOverdue || isDueToday
+                ? "bg-[var(--brick)]/12 text-[var(--brick)] opacity-90 hover:opacity-100"
+                : "bg-[var(--mustard)]/15 text-[var(--mustard)] opacity-0 group-hover:opacity-90 hover:!opacity-100"
+            }`}
+          >
+            {isInProgress ? "Xong ngay" : "Làm ngay"}
+          </button>
+        )}
 
       {!isPending && onRevert && (isInProgress || isDone) && (
         <button

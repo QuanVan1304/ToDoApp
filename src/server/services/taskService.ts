@@ -182,32 +182,20 @@ export async function listTasks(
     search,
     todayOnly,
   } = params;
-  const { start, end } = todayBounds();
+  const { end } = todayBounds();
 
   const andFilters: Prisma.TaskWhereInput[] = [];
 
   if (todayOnly) {
     // Trang Hôm nay:
-    // - Việc trong ngày hôm nay: hiện cả TODO và INPROGRESS
-    // - Việc tồn từ ngày trước: chỉ tự động dồn sang Hôm nay nếu vẫn đang TODO
-    //   (còn việc đã tick INPROGRESS từ hôm trước sẽ chỉ nằm ở trang Đang làm)
+    // - Hiện toàn bộ việc chưa xong (TODO & INPROGRESS) của hôm nay và tồn từ ngày trước
+    //   để người dùng luôn nhìn thấy cả việc mới lẫn việc đang làm dở / có hạn chót.
     andFilters.push({
-      OR: [
-        {
-          scheduledFor: {
-            gte: start,
-            lt: end,
-          },
-          ...(status && { status }),
-          ...(statuses?.length && { status: { in: statuses } }),
-        },
-        {
-          scheduledFor: {
-            lt: start,
-          },
-          status: "TODO",
-        },
-      ],
+      scheduledFor: {
+        lt: end,
+      },
+      ...(status && { status }),
+      ...(statuses?.length && { status: { in: statuses } }),
     });
   } else {
     if (status) andFilters.push({ status });

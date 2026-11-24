@@ -54,6 +54,26 @@ export function getDaysOld(date: Date | string | null): number {
   return Math.max(0, diffDays);
 }
 
+/**
+ * Số ngày còn lại cho tới hạn chót (dueDate) theo ngày Việt Nam:
+ * - < 0: đã quá hạn X ngày
+ * - 0: hôm nay là hạn chót
+ * - 1: ngày mai là hạn chót
+ * - > 1: còn nhiều ngày
+ */
+export function getDaysUntilDue(
+  dueDate: Date | string | null | undefined,
+): number | null {
+  if (!dueDate) return null;
+  const d = typeof dueDate === "string" ? new Date(dueDate) : dueDate;
+  if (Number.isNaN(d.getTime())) return null;
+  const dueKey = d.toISOString().slice(0, 10);
+  const todayKey = getVietnamDateKey(new Date());
+  const dueUtc = new Date(`${dueKey}T00:00:00.000Z`).getTime();
+  const todayUtc = new Date(`${todayKey}T00:00:00.000Z`).getTime();
+  return Math.round((dueUtc - todayUtc) / 86_400_000);
+}
+
 export function isTodayVietnam(date: Date | string | null): boolean {
   if (!date) return false;
   return getVietnamDateKey(date) === getVietnamDateKey(new Date());
